@@ -1,0 +1,98 @@
+#!/bin/sh
+set -eu
+
+CONFIG=${MEOWDECK_CONFIG:-/etc/meowdeck/config.json}
+PROG=${MEOWDECK_BIN:-/usr/bin/meowdeck}
+TEMPLATE_DIR=${MEOWDECK_TEMPLATE_DIR:-/usr/share/meowdeck}
+NGINX_TARGET=${MEOWDECK_NGINX_CONF:-/etc/nginx/conf.d/meowdeck.conf}
+RESTART=1
+
+if [ "${1:-}" = "--no-restart" ]; then
+	RESTART=0
+elif [ "$#" -gt 0 ]; then
+	echo "usage: meowdeck-configure [--no-restart]" >&2
+	exit 2
+fi
+
+[ "$(id -u)" -eq 0 ] || { echo "run as root on OpenWrt" >&2; exit 1; }
+[ -x "$PROG" ] || { echo "missing MeowDeck binary: $PROG" >&2; exit 1; }
+[ -r "$TEMPLATE_DIR/nginx.conf.template" ] || { echo "missing nginx template" >&2; exit 1; }
+[ -r "$TEMPLATE_DIR/dnsmasq.uci.template" ] || { echo "missing dnsmasq template" >&2; exit 1; }
+
+HOSTNAME=$("$PROG" -config "$CONFIG" -print-hostname)
+LAN_IP=$(uci -q get network.lan.ipaddr || true)
+OLD_HOSTNAME=$(uci -q get dhcp.meowdeck.name || true)
+OLD_LAN_IP=$(uci -q get dhcp.meowdeck.ip || true)
+[ -n "$HOSTNAME" ] || { echo "hostname is empty" >&2; exit 1; }
+[ -n "$LAN_IP" ] || { echo "cannot detect the OpenWrt LAN address" >&2; exit 1; }
+
+BACKUP=$(mktemp -d /tmp/meowdeck-configure.XXXXXX)
+SUCCESS=0
+HAD_NGINX=0
+
+if [ -e "$NGINX_TARGET" ]; then
+	cp -p "$NGINX_TARGET" "$BACKUP/nginx.conf"
+	HAD_NGINX=1
+fi
+uci export dhcp >"$BACKUP/dhcp.uci"
+
+rollback() {
+	status=$?
+	trap - EXIT HUP INT TERM
+	if [ "$SUCCESS" -eq 1 ]; then
+		rm -rf "$BACKUP"
+		return
+	fi
+	set +e
+	echo "configuration failed; restoring DNS and nginx" >&2
+	if [ "$HAD_NGINX" -eq 1 ]; then
+		cp -p "$BACKUP/nginx.conf" "$NGINX_TARGET"
+	else
+		rm -f "$NGINX_TARGET"
+	fi
+	uci import dhcp <"$BACKUP/dhcp.uci"
+	uci commit dhcp
+	/etc/init.d/dnsmasq restart >/dev/null 2>&1
+	nginx -s reload >/dev/null 2>&1
+	rm -rf "$BACKUP"
+	exit "$status"
+}
+trap rollback EXIT HUP INT TERM
+
+sed \
+	-e "s/@HOSTNAME@/$HOSTNAME/g" \
+	"$TEMPLATE_DIR/nginx.conf.template" >"$BACKUP/nginx.generated.conf"
+sed \
+	-e "s/@HOSTNAME@/$HOSTNAME/g" \
+	-e "s/@LAN_IP@/$LAN_IP/g" \
+	"$TEMPLATE_DIR/dnsmasq.uci.template" >"$BACKUP/dnsmasq.generated.uci"
+
+mkdir -p "$(dirname "$NGINX_TARGET")"
+cp "$BACKUP/nginx.generated.conf" "$NGINX_TARGET"
+nginx -t
+
+if [ -n "$OLD_HOSTNAME" ] && [ -n "$OLD_LAN_IP" ]; then
+	uci -q del_list dhcp.@dnsmasq[0].address="/$OLD_HOSTNAME/$OLD_LAN_IP" || true
+fi
+uci -q delete dhcp.meowdeck || true
+uci -q batch <"$BACKUP/dnsmasq.generated.uci"
+uci commit dhcp
+
+/etc/init.d/dnsmasq restart
+nginx -s reload
+
+if [ "$RESTART" -eq 1 ]; then
+	/etc/init.d/meowdeck restart
+	healthy=0
+	for _ in 1 2 3 4 5; do
+		if curl -fsS http://127.0.0.1:9080/healthz >/dev/null 2>&1; then
+			healthy=1
+			break
+		fi
+		sleep 1
+	done
+	[ "$healthy" -eq 1 ] || { echo "MeowDeck health check failed" >&2; exit 1; }
+fi
+
+SUCCESS=1
+echo "MeowDeck hostname configured: $HOSTNAME"

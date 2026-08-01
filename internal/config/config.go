@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -41,13 +42,12 @@ type Service struct {
 }
 
 type Config struct {
-	Listen          string            `json:"listen"`
-	Hostname        string            `json:"hostname"`
-	IntervalSeconds int               `json:"intervalSeconds"`
-	TimeoutSeconds  int               `json:"timeoutSeconds"`
-	HistorySize     int               `json:"historySize"`
-	Redirects       map[string]string `json:"redirects"`
-	Services        []Service         `json:"services"`
+	Listen          string    `json:"listen"`
+	Hostname        string    `json:"hostname"`
+	IntervalSeconds int       `json:"intervalSeconds"`
+	TimeoutSeconds  int       `json:"timeoutSeconds"`
+	HistorySize     int       `json:"historySize"`
+	Services        []Service `json:"services"`
 }
 
 func Default() Config {
@@ -57,7 +57,6 @@ func Default() Config {
 		IntervalSeconds: DefaultIntervalSeconds,
 		TimeoutSeconds:  DefaultTimeoutSeconds,
 		HistorySize:     DefaultHistorySize,
-		Redirects:       map[string]string{},
 		Services: []Service{
 			{
 				ID: "router", Slug: "router", Name: "GL.iNet 管理后台", Description: "GL-MT3600BE · 端口 80",
@@ -112,9 +111,6 @@ func applyDefaults(cfg *Config) {
 	if cfg.HistorySize <= 0 {
 		cfg.HistorySize = DefaultHistorySize
 	}
-	if cfg.Redirects == nil {
-		cfg.Redirects = map[string]string{}
-	}
 	for i := range cfg.Services {
 		if cfg.Services[i].Slug == "" {
 			cfg.Services[i].Slug = cfg.Services[i].ID
@@ -131,6 +127,9 @@ var allowedCategories = map[string]struct{}{
 }
 
 func (cfg Config) Validate() error {
+	if err := validateHostname(cfg.Hostname); err != nil {
+		return err
+	}
 	seen := make(map[string]struct{}, len(cfg.Services))
 	seenSlugs := make(map[string]struct{}, len(cfg.Services))
 	seenSubdomains := make(map[string]struct{}, len(cfg.Services))
@@ -180,6 +179,22 @@ func (cfg Config) Validate() error {
 		case "http", "tcp", "ping", "process", "":
 		default:
 			return fmt.Errorf("service %q: unsupported probe type %q", service.ID, service.Probe.Type)
+		}
+	}
+	return nil
+}
+
+func validateHostname(hostname string) error {
+	if len(hostname) > 253 || net.ParseIP(hostname) != nil {
+		return fmt.Errorf("hostname %q is not a valid DNS name", hostname)
+	}
+	if hostname != strings.ToLower(hostname) {
+		return fmt.Errorf("hostname %q must use lowercase letters", hostname)
+	}
+	labels := strings.Split(hostname, ".")
+	for _, label := range labels {
+		if !localNamePattern.MatchString(label) {
+			return fmt.Errorf("hostname %q is not a valid DNS name", hostname)
 		}
 	}
 	return nil

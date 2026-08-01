@@ -7,6 +7,8 @@ CONFIG=/etc/meowdeck/update.conf
 
 REPO=${REPO:-MeowKJ/openwrt-meowdeck}
 CHANNEL=${CHANNEL:-stable}
+CURL_CONNECT_TIMEOUT=${CURL_CONNECT_TIMEOUT:-15}
+CURL_MAX_TIME=${CURL_MAX_TIME:-300}
 API=https://api.github.com/repos/$REPO/releases
 
 case "$(uname -m)" in
@@ -25,9 +27,64 @@ else
 fi
 
 WORKDIR=$(mktemp -d /tmp/meowdeck-update.XXXXXX)
-trap 'rm -rf "$WORKDIR"' EXIT
+SUCCESS=0
+MUTATING=0
+WAS_RUNNING=0
 
-curl -fsSL "$RELEASE_URL" -o "$WORKDIR/release.json"
+fetch() {
+	curl -fsSL \
+		--connect-timeout "$CURL_CONNECT_TIMEOUT" \
+		--max-time "$CURL_MAX_TIME" \
+		"$1" -o "$2"
+}
+
+backup_file() {
+	target=$1
+	name=$2
+	if [ -e "$target" ]; then
+		cp -p "$target" "$WORKDIR/$name.previous"
+		: >"$WORKDIR/$name.existed"
+	fi
+}
+
+restore_file() {
+	target=$1
+	name=$2
+	if [ -f "$WORKDIR/$name.existed" ]; then
+		cp -p "$WORKDIR/$name.previous" "$target"
+	else
+		rm -f "$target"
+	fi
+}
+
+finalize() {
+	status=$?
+	trap - EXIT HUP INT TERM
+	if [ "$SUCCESS" -ne 1 ] && [ "$MUTATING" -eq 1 ]; then
+		set +e
+		echo "update failed; rolling back" >&2
+		/etc/init.d/meowdeck stop >/dev/null 2>&1
+		restore_file /usr/bin/meowdeck meowdeck.bin
+		restore_file /etc/init.d/meowdeck meowdeck.init
+		restore_file /usr/bin/meowdeck-update meowdeck-update
+		restore_file /usr/bin/meowdeck-configure meowdeck-configure
+		restore_file /usr/share/meowdeck/nginx.conf.template nginx.template
+		restore_file /usr/share/meowdeck/dnsmasq.uci.template dnsmasq.template
+		restore_file /etc/nginx/conf.d/meowdeck.conf nginx.conf
+		uci import dhcp <"$WORKDIR/dhcp.uci"
+		uci commit dhcp
+		/etc/init.d/dnsmasq restart >/dev/null 2>&1
+		nginx -s reload >/dev/null 2>&1
+		if [ "$WAS_RUNNING" -eq 1 ]; then
+			/etc/init.d/meowdeck start >/dev/null 2>&1
+		fi
+	fi
+	rm -rf "$WORKDIR"
+	exit "$status"
+}
+trap finalize EXIT HUP INT TERM
+
+fetch "$RELEASE_URL" "$WORKDIR/release.json"
 VERSION=$(jq -r '.tag_name' "$WORKDIR/release.json")
 ASSET=meowdeck-linux-$ARCH.tar.gz
 ASSET_URL=$(jq -r --arg name "$ASSET" '.assets[] | select(.name == $name) | .browser_download_url' "$WORKDIR/release.json")
@@ -42,18 +99,39 @@ if [ -z "$SUM_URL" ] || [ "$SUM_URL" = null ]; then
 	exit 1
 fi
 
-curl -fsSL "$ASSET_URL" -o "$WORKDIR/$ASSET"
-curl -fsSL "$SUM_URL" -o "$WORKDIR/$ASSET.sha256"
+fetch "$ASSET_URL" "$WORKDIR/$ASSET"
+fetch "$SUM_URL" "$WORKDIR/$ASSET.sha256"
 (
 	cd "$WORKDIR"
 	sha256sum -c "$ASSET.sha256"
 	tar -xzf "$ASSET"
 )
 
+[ -x /etc/init.d/meowdeck ] && /etc/init.d/meowdeck running >/dev/null 2>&1 && WAS_RUNNING=1
+backup_file /usr/bin/meowdeck meowdeck.bin
+backup_file /etc/init.d/meowdeck meowdeck.init
+backup_file /usr/bin/meowdeck-update meowdeck-update
+backup_file /usr/bin/meowdeck-configure meowdeck-configure
+backup_file /usr/share/meowdeck/nginx.conf.template nginx.template
+backup_file /usr/share/meowdeck/dnsmasq.uci.template dnsmasq.template
+backup_file /etc/nginx/conf.d/meowdeck.conf nginx.conf
+uci export dhcp >"$WORKDIR/dhcp.uci"
+MUTATING=1
+
 /etc/init.d/meowdeck stop || true
-cp /usr/bin/meowdeck "$WORKDIR/meowdeck.previous"
+mkdir -p /usr/share/meowdeck
 cp "$WORKDIR/meowdeck" /usr/bin/meowdeck
 chmod 0755 /usr/bin/meowdeck
+cp "$WORKDIR/meowdeck.init" /etc/init.d/meowdeck
+chmod 0755 /etc/init.d/meowdeck
+cp "$WORKDIR/meowdeck-update" /usr/bin/meowdeck-update
+chmod 0755 /usr/bin/meowdeck-update
+cp "$WORKDIR/meowdeck-configure" /usr/bin/meowdeck-configure
+chmod 0755 /usr/bin/meowdeck-configure
+cp "$WORKDIR/meowdeck.nginx.conf" /usr/share/meowdeck/nginx.conf.template
+cp "$WORKDIR/meowdeck.dnsmasq.uci" /usr/share/meowdeck/dnsmasq.uci.template
+
+/usr/bin/meowdeck-configure --no-restart
 /etc/init.d/meowdeck start
 
 healthy=0
@@ -64,14 +142,7 @@ for _ in 1 2 3 4 5; do
 	fi
 	sleep 1
 done
+[ "$healthy" -eq 1 ] || { echo "updated service failed health check" >&2; exit 1; }
 
-if [ "$healthy" -ne 1 ]; then
-	echo "update failed health check; rolling back" >&2
-	/etc/init.d/meowdeck stop || true
-	cp "$WORKDIR/meowdeck.previous" /usr/bin/meowdeck
-	chmod 0755 /usr/bin/meowdeck
-	/etc/init.d/meowdeck start
-	exit 1
-fi
-
+SUCCESS=1
 echo "MeowDeck updated to $VERSION ($CHANNEL)"

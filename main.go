@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -20,6 +21,8 @@ var version = "dev"
 func main() {
 	configPath := flag.String("config", "/etc/meowdeck/config.json", "configuration file")
 	listen := flag.String("listen", "", "listen address override")
+	checkConfig := flag.Bool("check-config", false, "validate configuration and exit")
+	printHostname := flag.Bool("print-hostname", false, "print the validated configured hostname and exit")
 	flag.Parse()
 
 	cfg, err := config.Load(*configPath)
@@ -29,6 +32,13 @@ func main() {
 	}
 	if *listen != "" {
 		cfg.Listen = *listen
+	}
+	if *printHostname {
+		fmt.Println(cfg.Hostname)
+		return
+	}
+	if *checkConfig {
+		return
 	}
 
 	assets, err := webui.FS()

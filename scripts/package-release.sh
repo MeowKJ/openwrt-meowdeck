@@ -32,9 +32,10 @@ cp "$ROOT/packaging/openwrt/init.d/meowdeck" "$OUT/meowdeck.init"
 cp "$ROOT/packaging/openwrt/nginx/meowdeck.conf" "$OUT/meowdeck.nginx.conf"
 cp "$ROOT/packaging/openwrt/dnsmasq/meowdeck.uci" "$OUT/meowdeck.dnsmasq.uci"
 cp "$ROOT/packaging/openwrt/meowdeck-update" "$OUT/meowdeck-update"
+cp "$ROOT/packaging/openwrt/meowdeck-configure" "$OUT/meowdeck-configure"
 cp "$ROOT/packaging/openwrt/update.conf" "$OUT/update.conf"
 cp "$ROOT/scripts/install-openwrt.sh" "$OUT/install.sh"
-chmod 0755 "$OUT/meowdeck" "$OUT/meowdeck.init" "$OUT/meowdeck-update" "$OUT/install.sh"
+chmod 0755 "$OUT/meowdeck" "$OUT/meowdeck.init" "$OUT/meowdeck-update" "$OUT/meowdeck-configure" "$OUT/install.sh"
 
 (
 	cd "$ROOT/dist"

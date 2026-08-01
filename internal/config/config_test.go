@@ -30,3 +30,20 @@ func TestInvalidCategoryFails(t *testing.T) {
 		t.Fatal("expected category validation error")
 	}
 }
+
+func TestHostnameValidation(t *testing.T) {
+	for _, hostname := range []string{"meow.lan", "deck.home.arpa", "a-b.example"} {
+		cfg := Default()
+		cfg.Hostname = hostname
+		if err := cfg.Validate(); err != nil {
+			t.Fatalf("hostname %q should be valid: %v", hostname, err)
+		}
+	}
+	for _, hostname := range []string{"Meow.lan", "-meow.lan", "meow..lan", "192.168.8.1", "meow.lan;reboot"} {
+		cfg := Default()
+		cfg.Hostname = hostname
+		if err := cfg.Validate(); err == nil {
+			t.Fatalf("hostname %q should be rejected", hostname)
+		}
+	}
+}

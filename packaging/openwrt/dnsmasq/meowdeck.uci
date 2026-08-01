@@ -1,4 +1,4 @@
 set dhcp.meowdeck=domain
-set dhcp.meowdeck.name='meow.lan'
+set dhcp.meowdeck.name='@HOSTNAME@'
 set dhcp.meowdeck.ip='@LAN_IP@'
-add_list dhcp.@dnsmasq[0].address='/meow.lan/@LAN_IP@'
+add_list dhcp.@dnsmasq[0].address='/@HOSTNAME@/@LAN_IP@'
