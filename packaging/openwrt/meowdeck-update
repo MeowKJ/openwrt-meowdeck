@@ -33,8 +33,14 @@ ASSET=meowdeck-linux-$ARCH.tar.gz
 ASSET_URL=$(jq -r --arg name "$ASSET" '.assets[] | select(.name == $name) | .browser_download_url' "$WORKDIR/release.json")
 SUM_URL=$(jq -r --arg name "$ASSET.sha256" '.assets[] | select(.name == $name) | .browser_download_url' "$WORKDIR/release.json")
 
-[ -n "$ASSET_URL" ] && [ "$ASSET_URL" != null ] || { echo "release asset not found: $ASSET" >&2; exit 1; }
-[ -n "$SUM_URL" ] && [ "$SUM_URL" != null ] || { echo "checksum not found: $ASSET.sha256" >&2; exit 1; }
+if [ -z "$ASSET_URL" ] || [ "$ASSET_URL" = null ]; then
+	echo "release asset not found: $ASSET" >&2
+	exit 1
+fi
+if [ -z "$SUM_URL" ] || [ "$SUM_URL" = null ]; then
+	echo "checksum not found: $ASSET.sha256" >&2
+	exit 1
+fi
 
 curl -fsSL "$ASSET_URL" -o "$WORKDIR/$ASSET"
 curl -fsSL "$SUM_URL" -o "$WORKDIR/$ASSET.sha256"
