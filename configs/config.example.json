@@ -1,0 +1,38 @@
+{
+  "listen": "127.0.0.1:9080",
+  "hostname": "meow.lan",
+  "intervalSeconds": 30,
+  "timeoutSeconds": 4,
+  "historySize": 120,
+  "services": [
+    {
+      "id": "router",
+      "slug": "router",
+      "name": "GL.iNet 管理后台",
+      "description": "GL-MT3600BE · 端口 80",
+      "category": "network",
+      "icon": "router",
+      "url": "http://192.168.8.1/",
+      "protected": true,
+      "probe": {
+        "type": "http",
+        "target": "http://127.0.0.1/",
+        "expectedStatus": [200, 302, 401, 403]
+      }
+    },
+    {
+      "id": "luci",
+      "slug": "luci",
+      "name": "LuCI 高级管理",
+      "description": "OpenWrt · 端口 8080",
+      "category": "network",
+      "icon": "terminal",
+      "url": "http://192.168.8.1:8080/cgi-bin/luci/",
+      "protected": true,
+      "probe": {
+        "type": "tcp",
+        "target": "127.0.0.1:8080"
+      }
+    }
+  ]
+}

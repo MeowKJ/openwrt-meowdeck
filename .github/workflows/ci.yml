@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache: true
+      - name: Install frontend dependencies
+        working-directory: web
+        run: npm ci
+      - name: Frontend checks
+        working-directory: web
+        run: |
+          npm run lint
+          npm run typecheck
+          npm test
+          npm run build
+      - name: Go checks
+        run: |
+          test -z "$(gofmt -l main.go internal)"
+          go vet . ./internal/...
+          go test -race . ./internal/...
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -o /tmp/meowdeck .
+      - name: Shell checks
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+          shellcheck scripts/*.sh packaging/openwrt/meowdeck-update packaging/openwrt/init.d/meowdeck
+      - name: Enforce frontend size budget
+        run: |
+          test "$(find internal/webui/dist/assets -type f -printf '%s\n' | awk '{s+=$1} END {print s+0}')" -lt 524288
+

@@ -1,0 +1,83 @@
+name: Edge release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: edge-release
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - asset: arm64
+            goarch: arm64
+          - asset: amd64
+            goarch: amd64
+          - asset: armv7
+            goarch: arm
+            goarm: '7'
+          - asset: mipsle
+            goarch: mipsle
+            gomips: softfloat
+          - asset: mips
+            goarch: mips
+            gomips: softfloat
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache: true
+      - name: Build release archive
+        env:
+          VERSION: edge-${{ github.sha }}
+          ASSET_ARCH: ${{ matrix.asset }}
+          GOARCH: ${{ matrix.goarch }}
+          GOARM: ${{ matrix.goarm }}
+          GOMIPS: ${{ matrix.gomips }}
+        run: ./scripts/package-release.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: meowdeck-${{ matrix.asset }}
+          path: |
+            dist/meowdeck-linux-${{ matrix.asset }}.tar.gz
+            dist/meowdeck-linux-${{ matrix.asset }}.tar.gz.sha256
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Move edge tag
+        run: |
+          git tag -f edge "$GITHUB_SHA"
+          git push origin refs/tags/edge --force
+      - name: Publish edge assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view edge >/dev/null 2>&1 || gh release create edge --prerelease --title "MeowDeck Edge" --notes "Automated build from main."
+          gh release upload edge dist/* --clobber
+

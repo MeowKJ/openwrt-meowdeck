@@ -1,0 +1,16 @@
+web/node_modules/
+web/dist/
+internal/webui/dist/*
+!internal/webui/dist/placeholder.txt
+bin/
+dist/
+coverage/
+.playwright-cli/
+output/
+web/*.tsbuildinfo
+web/vite.config.js
+web/vite.config.d.ts
+web/vitest.config.js
+web/vitest.config.d.ts
+.DS_Store
+*.local

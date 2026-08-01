@@ -1,0 +1,71 @@
+#!/bin/sh
+set -eu
+
+CONFIG=/etc/meowdeck/update.conf
+# shellcheck source=/dev/null
+[ -r "$CONFIG" ] && . "$CONFIG"
+
+REPO=${REPO:-MeowKJ/openwrt-meowdeck}
+CHANNEL=${CHANNEL:-stable}
+API=https://api.github.com/repos/$REPO/releases
+
+case "$(uname -m)" in
+	aarch64) ARCH=arm64 ;;
+	x86_64) ARCH=amd64 ;;
+	armv7l) ARCH=armv7 ;;
+	mipsel) ARCH=mipsle ;;
+	mips) ARCH=mips ;;
+	*) echo "unsupported architecture: $(uname -m)" >&2; exit 1 ;;
+esac
+
+if [ "$CHANNEL" = edge ]; then
+	RELEASE_URL=$API/tags/edge
+else
+	RELEASE_URL=$API/latest
+fi
+
+WORKDIR=$(mktemp -d /tmp/meowdeck-update.XXXXXX)
+trap 'rm -rf "$WORKDIR"' EXIT
+
+curl -fsSL "$RELEASE_URL" -o "$WORKDIR/release.json"
+VERSION=$(jq -r '.tag_name' "$WORKDIR/release.json")
+ASSET=meowdeck-linux-$ARCH.tar.gz
+ASSET_URL=$(jq -r --arg name "$ASSET" '.assets[] | select(.name == $name) | .browser_download_url' "$WORKDIR/release.json")
+SUM_URL=$(jq -r --arg name "$ASSET.sha256" '.assets[] | select(.name == $name) | .browser_download_url' "$WORKDIR/release.json")
+
+[ -n "$ASSET_URL" ] && [ "$ASSET_URL" != null ] || { echo "release asset not found: $ASSET" >&2; exit 1; }
+[ -n "$SUM_URL" ] && [ "$SUM_URL" != null ] || { echo "checksum not found: $ASSET.sha256" >&2; exit 1; }
+
+curl -fsSL "$ASSET_URL" -o "$WORKDIR/$ASSET"
+curl -fsSL "$SUM_URL" -o "$WORKDIR/$ASSET.sha256"
+(
+	cd "$WORKDIR"
+	sha256sum -c "$ASSET.sha256"
+	tar -xzf "$ASSET"
+)
+
+/etc/init.d/meowdeck stop || true
+cp /usr/bin/meowdeck "$WORKDIR/meowdeck.previous"
+cp "$WORKDIR/meowdeck" /usr/bin/meowdeck
+chmod 0755 /usr/bin/meowdeck
+/etc/init.d/meowdeck start
+
+healthy=0
+for _ in 1 2 3 4 5; do
+	if curl -fsS http://127.0.0.1:9080/healthz >/dev/null 2>&1; then
+		healthy=1
+		break
+	fi
+	sleep 1
+done
+
+if [ "$healthy" -ne 1 ]; then
+	echo "update failed health check; rolling back" >&2
+	/etc/init.d/meowdeck stop || true
+	cp "$WORKDIR/meowdeck.previous" /usr/bin/meowdeck
+	chmod 0755 /usr/bin/meowdeck
+	/etc/init.d/meowdeck start
+	exit 1
+fi
+
+echo "MeowDeck updated to $VERSION ($CHANNEL)"
