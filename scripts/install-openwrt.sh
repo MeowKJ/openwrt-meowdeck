@@ -56,7 +56,7 @@ rollback() {
 	uci import dhcp <"$BACKUP/dhcp.uci"
 	uci commit dhcp
 	/etc/init.d/dnsmasq restart >/dev/null 2>&1
-	/etc/init.d/nginx reload >/dev/null 2>&1
+	nginx -s reload >/dev/null 2>&1
 	if [ "$WAS_RUNNING" -eq 1 ] && [ -x /etc/init.d/meowdeck ]; then
 		/etc/init.d/meowdeck start >/dev/null 2>&1
 	fi
@@ -98,7 +98,7 @@ uci commit dhcp
 
 nginx -t
 /etc/init.d/dnsmasq restart
-/etc/init.d/nginx reload
+nginx -s reload
 /etc/init.d/meowdeck enable
 /etc/init.d/meowdeck restart
 
