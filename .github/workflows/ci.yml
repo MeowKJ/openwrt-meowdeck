@@ -16,16 +16,16 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version: '1.23.x'
-          cache: true
+          cache: false
       - name: Install frontend dependencies
         working-directory: web
         run: npm ci
@@ -50,4 +50,3 @@ jobs:
       - name: Enforce frontend size budget
         run: |
           test "$(find internal/webui/dist/assets -type f -printf '%s\n' | awk '{s+=$1} END {print s+0}')" -lt 524288
-
