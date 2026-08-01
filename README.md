@@ -4,7 +4,7 @@ MeowDeck 是一个运行在 OpenWrt 上的轻量本地服务导航与心跳面�
 React 构建，后端是单个 Go 进程；不需要数据库，心跳历史只保存在内存中，
 适合直接放在家用路由器上。
 
-默认安装只显示两张不可删除的卡片：
+默认域名是 `meow.lan`，默认安装只显示两张不可删除的卡片：
 
 - GL.iNet 管理后台：`http://meow.lan/router`
 - LuCI 高级管理：`http://meow.lan/luci`
@@ -16,13 +16,44 @@ OpenClash、Tailscale、QQ 农场、Home Assistant 或其他服务都由用户�
 
 - 在页面中添加、删除服务卡片，配置会原子写入 `/etc/meowdeck/config.json`
 - HTTP、TCP、Ping 和本机进程四种心跳检查
-- 默认入口 `http://meow.lan/项目标识`
-- 可选入口 `http://自定义.meow.lan`
+- 域名由全局 `hostname` 配置，不绑定 `meow.lan`
+- 默认入口 `http://<hostname>/项目标识`
+- 可选入口 `http://自定义.<hostname>`
 - 可选子域名反向代理；关闭代理时入口使用 `307` 跳转到实际后台地址
 - 内存心跳历史，不持续写路由器闪存
 - 自适应桌面与手机屏幕，支持系统“减少动态效果”设置
 - ARM64、AMD64、ARMv7、MIPS 和 MIPSLE 发布包
 - Stable/Edge 自动发布与失败回滚更新
+
+## 全局配置
+
+`/etc/meowdeck/config.json` 是唯一配置源。`hostname` 同时决定页面显示、路径
+入口、子域名、dnsmasq 和 nginx vhost：
+
+```json
+{
+  "listen": "127.0.0.1:9080",
+  "hostname": "meow.lan",
+  "intervalSeconds": 30,
+  "timeoutSeconds": 4,
+  "historySize": 120
+}
+```
+
+修改域名后执行：
+
+```sh
+meowdeck-configure
+```
+
+该命令会先通过 MeowDeck 二进制校验完整配置，再备份 DHCP/nginx、生成配置、
+执行 `nginx -t`、更新 DNS 并重启服务。任何一步失败都会恢复原来的网络配置。
+域名必须由小写字母、数字、短横线和点组成，例如 `home.lan` 或
+`deck.home.arpa`。家庭网络更推荐使用保留域 `home.arpa`；应避免与公网域名或
+mDNS 的 `.local` 冲突。
+
+首次安装时也可以预先修改发布包内的 `config.example.json`；安装器会直接使用
+其中的 `hostname`，无需修改安装脚本或模板。
 
 ## 地址规则
 
@@ -38,7 +69,7 @@ http://meow.lan/home-assistant
 http://ha.meow.lan
 ```
 
-安装程序会让 dnsmasq 同时解析 `meow.lan` 和 `*.meow.lan`，所以新增子域名时
+安装程序会让 dnsmasq 同时解析配置的主域名和通配子域名，所以新增子域名时
 不需要再次修改 DNS。启用“保持自定义域名”后，Go 后端会反向代理实际地址；
 某些使用绝对路径、WebSocket 或严格 Cookie 域名的后台可能不兼容，此时关闭
 代理并使用跳转模式即可。
@@ -56,11 +87,12 @@ http://ha.meow.lan
 - 安装 `/usr/bin/meowdeck` 与 procd 开机服务
 - 首次生成 `/etc/meowdeck/config.json`
 - 添加 `/etc/nginx/conf.d/meowdeck.conf`
-- 配置 `meow.lan` 和 `*.meow.lan` 的 dnsmasq 解析
+- 根据全局 `hostname` 配置主域名和通配子域名解析
+- 安装 `meowdeck-configure`，用于安全同步域名变化
 - 检查 nginx 配置和 MeowDeck `/healthz`
 - 安装失败时恢复原有文件、DHCP 配置和服务状态
 
-完成后，在使用该路由器 DNS 的设备上打开 <http://meow.lan>。GL.iNet 原管理页
+使用默认配置时，在使用该路由器 DNS 的设备上打开 <http://meow.lan>。GL.iNet 原管理页
 和 LuCI 的 IP 地址入口不会被替换。
 
 ## 页面与 API 添加服务
@@ -125,7 +157,8 @@ make package VERSION=dev
 - `edge`：`main` 分支每次通过 CI 后产生的预览版本
 
 修改 `/etc/meowdeck/update.conf` 中的 `CHANNEL`，然后执行 `meowdeck-update`。
-更新程序会校验 SHA-256；若 `/healthz` 未恢复，会自动换回旧二进制。
+更新程序会校验 SHA-256，并同步二进制、procd 服务、配置同步工具和网络模板；
+若配置应用或 `/healthz` 检查失败，会恢复旧文件、DHCP 和 nginx 状态。
 
 ## License
 

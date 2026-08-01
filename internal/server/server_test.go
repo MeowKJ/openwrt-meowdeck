@@ -37,6 +37,7 @@ func TestStatusAndRedirect(t *testing.T) {
 
 func TestAddAndDeleteCustomService(t *testing.T) {
 	cfg := config.Default()
+	cfg.Hostname = "deck.home.arpa"
 	manager := monitor.New(cfg, "test-version")
 	assets := fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<h1>MeowDeck</h1>")}}
 	server := New("127.0.0.1:0", manager, fs.FS(assets), cfg, t.TempDir()+"/config.json")
@@ -60,7 +61,7 @@ func TestAddAndDeleteCustomService(t *testing.T) {
 	request = httptest.NewRequest(http.MethodGet, "/farm", nil)
 	recorder = httptest.NewRecorder()
 	server.HTTPServer().Handler.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusTemporaryRedirect || recorder.Header().Get("Location") != "http://grow.meow.lan" {
+	if recorder.Code != http.StatusTemporaryRedirect || recorder.Header().Get("Location") != "http://grow.deck.home.arpa" {
 		t.Fatalf("unexpected alias redirect: %d %q", recorder.Code, recorder.Header().Get("Location"))
 	}
 
