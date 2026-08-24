@@ -7,6 +7,7 @@ GOARCH=${GOARCH:-arm64}
 GOARM=${GOARM:-}
 GOMIPS=${GOMIPS:-}
 ASSET_ARCH=${ASSET_ARCH:-$GOARCH}
+TRUSTED_KEYS_B64=${TRUSTED_KEYS_B64:-e30=}
 OUT="$ROOT/dist/meowdeck-linux-$ASSET_ARCH"
 
 rm -rf "$OUT"
@@ -24,7 +25,9 @@ build_env=(CGO_ENABLED=0 GOOS=linux GOARCH="$GOARCH")
 
 (
 	cd "$ROOT"
-	env "${build_env[@]}" go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o "$OUT/meowdeck" .
+	env "${build_env[@]}" go build -trimpath \
+		-ldflags "-s -w -X main.version=$VERSION -X github.com/MeowKJ/openwrt-meowdeck/internal/updater.trustedKeysBase64=$TRUSTED_KEYS_B64" \
+		-o "$OUT/meowdeck" .
 )
 
 cp "$ROOT/configs/config.example.json" "$OUT/config.example.json"
@@ -32,10 +35,11 @@ cp "$ROOT/packaging/openwrt/init.d/meowdeck" "$OUT/meowdeck.init"
 cp "$ROOT/packaging/openwrt/nginx/meowdeck.conf" "$OUT/meowdeck.nginx.conf"
 cp "$ROOT/packaging/openwrt/dnsmasq/meowdeck.uci" "$OUT/meowdeck.dnsmasq.uci"
 cp "$ROOT/packaging/openwrt/meowdeck-update" "$OUT/meowdeck-update"
+cp "$ROOT/packaging/openwrt/init.d/meowdeck-updater" "$OUT/meowdeck-updater.init"
 cp "$ROOT/packaging/openwrt/meowdeck-configure" "$OUT/meowdeck-configure"
 cp "$ROOT/packaging/openwrt/update.conf" "$OUT/update.conf"
 cp "$ROOT/scripts/install-openwrt.sh" "$OUT/install.sh"
-chmod 0755 "$OUT/meowdeck" "$OUT/meowdeck.init" "$OUT/meowdeck-update" "$OUT/meowdeck-configure" "$OUT/install.sh"
+chmod 0755 "$OUT/meowdeck" "$OUT/meowdeck.init" "$OUT/meowdeck-updater.init" "$OUT/meowdeck-update" "$OUT/meowdeck-configure" "$OUT/install.sh"
 
 (
 	cd "$ROOT/dist"

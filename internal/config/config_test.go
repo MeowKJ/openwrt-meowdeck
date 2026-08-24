@@ -1,49 +1,41 @@
 package config
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
-func TestDefaultIsValid(t *testing.T) {
+func TestDefaultIsZeroConfigurationLANOnly(t *testing.T) {
 	cfg := Default()
-	if err := cfg.Validate(); err != nil {
-		t.Fatalf("default config should be valid: %v", err)
-	}
-	if cfg.Hostname != "meow.lan" {
-		t.Fatalf("unexpected hostname %q", cfg.Hostname)
-	}
-	if len(cfg.Services) != 2 || !cfg.Services[0].Protected || !cfg.Services[1].Protected {
-		t.Fatalf("default config should contain two protected services: %#v", cfg.Services)
+	if cfg.Hostname != "meow.lan" || len(cfg.LANInterfaces) != 1 || cfg.LANInterfaces[0] != "lan" {
+		t.Fatalf("unexpected default config: %#v", cfg)
 	}
 }
 
-func TestDuplicateServiceFails(t *testing.T) {
+func TestLegacyConfigurationLoadsWithoutManagementFields(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	raw := []byte(`{"listen":"127.0.0.1:9080","hostname":"meow.lan","adminToken":"old","services":[{"id":"old"}]}`)
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.LANInterfaces) != 1 || cfg.LANInterfaces[0] != "lan" {
+		t.Fatalf("legacy config did not receive safe defaults: %#v", cfg)
+	}
+}
+
+func TestRejectsDuplicateOrUnsafeInterfaces(t *testing.T) {
 	cfg := Default()
-	cfg.Services = append(cfg.Services, cfg.Services[0])
+	cfg.LANInterfaces = []string{"lan", "lan"}
 	if err := cfg.Validate(); err == nil {
-		t.Fatal("expected duplicate service validation error")
+		t.Fatal("expected duplicate interface rejection")
 	}
-}
-
-func TestInvalidCategoryFails(t *testing.T) {
-	cfg := Default()
-	cfg.Services[0].Category = "unknown"
+	cfg.LANInterfaces = []string{"wan;reboot"}
 	if err := cfg.Validate(); err == nil {
-		t.Fatal("expected category validation error")
-	}
-}
-
-func TestHostnameValidation(t *testing.T) {
-	for _, hostname := range []string{"meow.lan", "deck.home.arpa", "a-b.example"} {
-		cfg := Default()
-		cfg.Hostname = hostname
-		if err := cfg.Validate(); err != nil {
-			t.Fatalf("hostname %q should be valid: %v", hostname, err)
-		}
-	}
-	for _, hostname := range []string{"Meow.lan", "-meow.lan", "meow..lan", "192.168.8.1", "meow.lan;reboot"} {
-		cfg := Default()
-		cfg.Hostname = hostname
-		if err := cfg.Validate(); err == nil {
-			t.Fatalf("hostname %q should be rejected", hostname)
-		}
+		t.Fatal("expected unsafe interface rejection")
 	}
 }

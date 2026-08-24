@@ -1,0 +1,159 @@
+name: Verify, package, and release
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: meowdeck-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version: '1.23.x'
+          cache: false
+      - name: Frontend verification
+        working-directory: web
+        run: |
+          npm ci
+          npm run lint
+          npm run typecheck
+          npm test
+          npm run build
+      - name: Go verification
+        run: |
+          test -z "$(gofmt -l main.go cmd internal)"
+          go vet . ./cmd/... ./internal/...
+          go test -race . ./cmd/... ./internal/...
+      - name: Shell verification
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+          shellcheck scripts/*.sh packaging/openwrt/meowdeck-update packaging/openwrt/meowdeck-configure packaging/openwrt/init.d/*
+      - name: Frontend size budget
+        run: |
+          gzip_bytes=$(find internal/webui/dist -type f -print0 | xargs -0 -n1 gzip -c | wc -c)
+          test "$gzip_bytes" -le 51200
+
+  package:
+    needs: verify
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - asset: arm64
+            goarch: arm64
+          - asset: amd64
+            goarch: amd64
+          - asset: armv7
+            goarch: arm
+            goarm: '7'
+          - asset: mipsle
+            goarch: mipsle
+            gomips: softfloat
+          - asset: mips
+            goarch: mips
+            gomips: softfloat
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version: '1.23.x'
+          cache: false
+      - name: Build release archive
+        env:
+          ASSET_ARCH: ${{ matrix.asset }}
+          GOARCH: ${{ matrix.goarch }}
+          GOARM: ${{ matrix.goarm }}
+          GOMIPS: ${{ matrix.gomips }}
+          TRUSTED_KEYS_B64: ${{ vars.MEOWDECK_TRUSTED_KEYS_B64 || 'e30=' }}
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            export VERSION="${GITHUB_REF_NAME}"
+          else
+            export VERSION="edge-${GITHUB_SHA}"
+          fi
+          ./scripts/package-release.sh
+          test "$(stat -c '%s' "dist/meowdeck-linux-${ASSET_ARCH}/meowdeck")" -le 8388608
+          test "$(stat -c '%s' "dist/meowdeck-linux-${ASSET_ARCH}.tar.gz")" -le 4194304
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: meowdeck-${{ matrix.asset }}
+          path: dist/meowdeck-linux-${{ matrix.asset }}.tar.gz
+          if-no-files-found: error
+
+  publish:
+    if: github.event_name != 'pull_request'
+    needs: package
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version: '1.23.x'
+          cache: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Sign release manifest
+        env:
+          MEOWDECK_SIGNING_PRIVATE_KEY: ${{ secrets.MEOWDECK_SIGNING_PRIVATE_KEY }}
+          KEY_ID: ${{ vars.MEOWDECK_KEY_ID }}
+          TRUSTED_KEYS_B64: ${{ vars.MEOWDECK_TRUSTED_KEYS_B64 }}
+        run: |
+          test -n "$MEOWDECK_SIGNING_PRIVATE_KEY"
+          test -n "$KEY_ID"
+          test -n "$TRUSTED_KEYS_B64"
+          test "$TRUSTED_KEYS_B64" != e30=
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            channel=stable
+            version="$GITHUB_REF_NAME"
+            release_tag="$GITHUB_REF_NAME"
+          else
+            channel=edge
+            version="edge-${GITHUB_SHA}"
+            release_tag=edge
+          fi
+          base_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${release_tag}"
+          go run ./cmd/meowdeck-manifest +            -dist dist -channel "$channel" -version "$version" +            -sequence "$GITHUB_RUN_NUMBER" -key-id "$KEY_ID" -base-url "$base_url"
+      - name: Publish signed release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            tag="$GITHUB_REF_NAME"
+            gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --generate-notes
+          else
+            tag=edge
+            git tag -f edge "$GITHUB_SHA"
+            git push origin refs/tags/edge --force
+            gh release view edge >/dev/null 2>&1 || gh release create edge --prerelease --title "MeowDeck Edge" --notes "Automated build from verified main."
+          fi
+          gh release upload "$tag" dist/* --clobber

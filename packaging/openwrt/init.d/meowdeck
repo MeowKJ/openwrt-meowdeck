@@ -13,7 +13,7 @@ CONFIG=/etc/meowdeck/config.json
 
 start_service() {
 	procd_open_instance
-	procd_set_param command "$PROG" -config "$CONFIG"
+	procd_set_param command "$PROG" serve -config "$CONFIG"
 	procd_set_param respawn 3600 5 5
 	procd_set_param stdout 1
 	procd_set_param stderr 1

@@ -1,50 +1,52 @@
-export type ServiceCategory = 'network' | 'automation' | 'smart-home' | 'device'
-export type ServiceState = 'online' | 'degraded' | 'offline' | 'disabled' | 'checking'
-export type ProbeType = 'http' | 'tcp' | 'ping' | 'process'
+export type DeviceState = 'candidate' | 'online' | 'offline'
+export type ServiceState = 'candidate' | 'established' | 'online' | 'offline'
 
-export interface HeartbeatPoint {
-  at: string
+export interface Device {
+  id: string
+  domain: string
+  interface: string
+  mac: string
+  ipv4: string
+  name: string
+  router?: boolean
+  state: DeviceState
+  firstSeen: string
+  lastSeen: string
+}
+
+export interface Service {
+  id: string
+  deviceId: string
+  scheme: string
+  port: number
+  path: string
+  type: string
+  name: string
+  url: string
   state: ServiceState
+  firstSeen: string
+  lastSeen: string
   latencyMs?: number
 }
 
-export interface ServiceStatus {
+export interface Incident {
   id: string
-  slug: string
-  subdomain?: string
+  subjectId: string
+  subjectType: 'device' | 'service'
   name: string
-  description: string
-  category: ServiceCategory
-  icon: string
-  url?: string
-  state: ServiceState
-  latencyMs?: number
-  lastChecked?: string
-  message?: string
-  editable: boolean
-  history: HeartbeatPoint[]
+  reason: string
+  startedAt: string
+  resolvedAt?: string
 }
 
-export interface ServiceInput {
-  id: string
-  slug: string
-  subdomain?: string
-  name: string
-  description: string
-  category: ServiceCategory
-  icon: string
-  url?: string
-  proxy?: boolean
-  probe: {
-    type: ProbeType
-    target: string
-  }
-}
-
-export interface StatusResponse {
+export interface Catalog {
   version: string
   generatedAt: string
-  hostname: string
-  intervalSeconds: number
-  services: ServiceStatus[]
+  ipv4Only: boolean
+  lastDiscoveryAt: string
+  discoveryError?: string
+  persistenceWritesSinceBoot: number
+  devices: Device[]
+  services: Service[]
+  incidents: Incident[]
 }

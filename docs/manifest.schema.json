@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/MeowKJ/openwrt-meowdeck/docs/manifest.schema.json",
+  "title": "MeowDeck signed release manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "channel", "version", "sequence", "created_at", "min_updater_version", "key_id", "artifacts"],
+  "properties": {
+    "schema": { "const": 1 },
+    "channel": { "enum": ["edge", "stable"] },
+    "version": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "sequence": { "type": "integer", "minimum": 1 },
+    "created_at": { "type": "string", "format": "date-time" },
+    "min_updater_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "key_id": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,32}$" },
+    "artifacts": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["url", "sha256", "size"],
+        "properties": {
+          "url": { "type": "string", "format": "uri" },
+          "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "size": { "type": "integer", "minimum": 1, "maximum": 16777216 }
+        }
+      }
+    }
+  }
+}
+

@@ -6,6 +6,7 @@ BACKUP=$(mktemp -d /tmp/meowdeck-install.XXXXXX)
 SUCCESS=0
 WAS_RUNNING=0
 WAS_ENABLED=0
+UPDATER_WAS_ENABLED=0
 
 [ "$(id -u)" -eq 0 ] || { echo "run as root on OpenWrt" >&2; exit 1; }
 [ -x "$ROOT/meowdeck" ] || { echo "missing release binary: $ROOT/meowdeck" >&2; exit 1; }
@@ -44,6 +45,7 @@ rollback() {
 	restore_file /usr/bin/meowdeck meowdeck.bin
 	restore_file /etc/meowdeck/config.json config.json
 	restore_file /etc/init.d/meowdeck meowdeck.init
+	restore_file /etc/init.d/meowdeck-updater meowdeck-updater.init
 	restore_file /usr/bin/meowdeck-update meowdeck-update
 	restore_file /usr/bin/meowdeck-configure meowdeck-configure
 	restore_file /etc/meowdeck/update.conf update.conf
@@ -54,6 +56,11 @@ rollback() {
 		/etc/init.d/meowdeck enable >/dev/null 2>&1
 	elif [ -x /etc/init.d/meowdeck ]; then
 		/etc/init.d/meowdeck disable >/dev/null 2>&1
+	fi
+	if [ "$UPDATER_WAS_ENABLED" -eq 1 ] && [ -x /etc/init.d/meowdeck-updater ]; then
+		/etc/init.d/meowdeck-updater enable >/dev/null 2>&1
+	elif [ -x /etc/init.d/meowdeck-updater ]; then
+		/etc/init.d/meowdeck-updater disable >/dev/null 2>&1
 	fi
 	uci import dhcp <"$BACKUP/dhcp.uci"
 	uci commit dhcp
@@ -67,10 +74,12 @@ rollback() {
 }
 
 [ -x /etc/init.d/meowdeck ] && /etc/init.d/meowdeck running >/dev/null 2>&1 && WAS_RUNNING=1
-ls /etc/rc.d/S*meowdeck >/dev/null 2>&1 && WAS_ENABLED=1
+ls /etc/rc.d/S??meowdeck >/dev/null 2>&1 && WAS_ENABLED=1
+ls /etc/rc.d/S??meowdeck-updater >/dev/null 2>&1 && UPDATER_WAS_ENABLED=1
 backup_file /usr/bin/meowdeck meowdeck.bin
 backup_file /etc/meowdeck/config.json config.json
 backup_file /etc/init.d/meowdeck meowdeck.init
+backup_file /etc/init.d/meowdeck-updater meowdeck-updater.init
 backup_file /usr/bin/meowdeck-update meowdeck-update
 backup_file /usr/bin/meowdeck-configure meowdeck-configure
 backup_file /etc/meowdeck/update.conf update.conf
@@ -91,6 +100,8 @@ fi
 
 cp "$ROOT/meowdeck.init" /etc/init.d/meowdeck
 chmod 0755 /etc/init.d/meowdeck
+cp "$ROOT/meowdeck-updater.init" /etc/init.d/meowdeck-updater
+chmod 0755 /etc/init.d/meowdeck-updater
 cp "$ROOT/meowdeck-update" /usr/bin/meowdeck-update
 chmod 0755 /usr/bin/meowdeck-update
 cp "$ROOT/meowdeck-configure" /usr/bin/meowdeck-configure
@@ -104,6 +115,8 @@ cp "$ROOT/meowdeck.dnsmasq.uci" /usr/share/meowdeck/dnsmasq.uci.template
 /usr/bin/meowdeck-configure --no-restart
 /etc/init.d/meowdeck enable
 /etc/init.d/meowdeck restart
+/etc/init.d/meowdeck-updater enable
+/etc/init.d/meowdeck-updater restart
 
 healthy=0
 for _ in 1 2 3 4 5; do
